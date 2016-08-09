@@ -1,0 +1,6 @@
+rootProject.name = 'java-librealsense'
+
+include ':cpp-tutorial-1-depth'
+include ':cpp-tutorial-2-streams'
+include ':cpp-tutorial-3-pointcloud'
+include ':cpp-tutorial-3-pointcloud-optimized'

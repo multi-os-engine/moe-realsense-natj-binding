@@ -1,0 +1,106 @@
+import org.gradle.internal.os.OperatingSystem
+
+group 'org.moe'
+version '1.0-SNAPSHOT'
+
+apply plugin: 'java'
+
+sourceCompatibility = "1.8"
+targetCompatibility = "1.8"
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    api
+    pkg
+}
+
+dependencies {
+    api rootProject
+
+    compile rootProject
+    compile files('../deps/java/natj.jar')
+    compile 'org.jogamp.jogl:jogl-all-main:2.3.2'
+    compile 'org.jogamp.gluegen:gluegen-rt-main:2.3.2'
+
+    pkg files('../deps/java/natj.jar')
+    pkg 'org.jogamp.jogl:jogl-all-main:2.3.2'
+    pkg 'org.jogamp.gluegen:gluegen-rt-main:2.3.2'
+    pkg fileTree('build/classes/main')
+
+    testCompile group: 'junit', name: 'junit', version: '4.11'
+}
+
+task extractApi(type: Copy) {
+    from '../build/classes/main'
+    into "$buildDir/raw_classes/main"
+}
+
+task processClasses << {
+    javaexec {
+        classpath = files('../deps/utils/natj-processor.jar')
+        main 'org.moe.natj.processor.Main'
+
+        args "-i", "build/raw_classes/main"
+        args "-o", "build/classes/main"
+        args "-gen_cxx_source", "build/natj_cxx_stub.cpp"
+        args "-m", "c++"
+
+        standardOutput = System.out
+        errorOutput = System.out
+    }
+    exec {
+        executable = 'gcc'
+
+        if (OperatingSystem.current().isMacOsX()) {
+            args "-L../deps/native/darwin"
+            args "-rpath", "@loader_path/../../deps/native/darwin"
+            args "-o", "build/libjava-realsense.dylib"
+        } else if (OperatingSystem.current().isLinux()) {
+            def arch = System.getProperty("os.arch")
+            switch (arch) {
+                case "x86_64":
+                case "amd64":
+                case "x64":
+                case "x86-64":
+                    args "-L../deps/native/linux-x86_64"
+                    args "-Wl,-rpath,'\$ORIGIN/../deps/native/linux-x86_64'"
+                    break;
+                default:
+                    args "-L../deps/native/linux-i686"
+                    args "-Wl,-rpath,'\$ORIGIN/../deps/native/linux-i686'"
+                    break;
+            }
+            args "-o", "build/libjava-realsense.so"
+        } else {
+            throw new GradleException("Unsupported system")
+        }
+        args "-shared", "-fPIC", "-std=c++11"
+        args "-I../deps/headers"
+        args "build/natj_cxx_stub.cpp"
+        args "-lstdc++"
+        args "-lnatj", "-lrealsense"
+
+        standardOutput = System.out
+        errorOutput = System.out
+    }
+    sourceSets.main.output.classesDir = 'build/classes/main'
+}
+tasks.processClasses.dependsOn(classes, extractApi)
+tasks.build.dependsOn(processClasses)
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'org.moe.librealsense.samples.Main'
+    }
+    from configurations.pkg.collect { it.isDirectory() ? it : zipTree(it) }
+}
+jar.dependsOn(processClasses)
+
+compileJava {
+    doFirst {
+        sourceSets.main.output.classesDir = 'build/raw_classes/main'
+    }
+}
